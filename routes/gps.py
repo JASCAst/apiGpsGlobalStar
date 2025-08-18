@@ -16,97 +16,113 @@ collection = db["datos"]
 
 router = APIRouter()
 
-# Función de decodificación (Copia y pega tu función aquí)
+# Función de decodificación
 def decode_smartone_solar_payload(hex_payload: str) -> dict:
-    """
-    Decodes a SmartOne Solar hex payload based on the Type 0 message class.
-    Assumes the input hex_payload is a string like '0x04C5080DCC190A0000'.
-    """
-    if hex_payload.startswith("0x"):
+    def decode_single_payload(payload_bytes: bytes) -> dict:
+        if len(payload_bytes) != 9:
+            return {"error": f"Invalid chunk size {len(payload_bytes)} bytes, expected 9 bytes."}
+
+        byte0 = payload_bytes[0]
+        global_message_type = byte0 & 0b00000011  # Bits 0 y 1
+        battery_state = (byte0 >> 2) & 0b00000001  # Bit 2
+        gps_data_valid = (byte0 >> 3) & 0b00000001  # Bit 3
+        missed_input_1 = (byte0 >> 4) & 0b00000001  # Bit 4
+        missed_input_2 = (byte0 >> 5) & 0b00000001  # Bit 5
+        gps_fail_counter = (byte0 >> 6) & 0b00000011  # Bits 6 y 7
+
+        decoded = {
+            "Global Message Type": global_message_type,
+            "Battery State": "Good battery" if battery_state == 0 else "Replace battery",
+            "GPS Data Valid": "GPS Data valid in this message" if gps_data_valid == 0 else "GPS failed in this message cycle, ignore Latitude and Longitude fields",
+            "Missed Input 1 State Change": "Yes" if missed_input_1 == 1 else "No",
+            "Missed Input 2 State Change": "Yes" if missed_input_2 == 1 else "No",
+            "GPS Fail Counter": gps_fail_counter,
+        }
+
+        if global_message_type == 0:
+            # Latitude y Longitude
+            latitude_raw = int.from_bytes(payload_bytes[1:4], byteorder='big', signed=True)
+            longitude_raw = int.from_bytes(payload_bytes[4:7], byteorder='big', signed=True)
+            latitude = latitude_raw * (90.0 / 8388608.0)
+            longitude = longitude_raw * (180.0 / 8388608.0)
+
+            byte7 = payload_bytes[7]
+            input_1_change = (byte7 >> 0) & 0b00000001
+            input_1_state = (byte7 >> 1) & 0b00000001
+            input_2_change = (byte7 >> 2) & 0b00000001
+            input_2_state = (byte7 >> 3) & 0b00000001
+            message_sub_type = (byte7 >> 4) & 0b00001111
+
+            decoded.update({
+                "Latitude": latitude,
+                "Longitude": longitude,
+                "Input 1 Change": "Triggered message" if input_1_change == 1 else "Did not trigger message",
+                "Input 1 State": "Open" if input_1_state == 1 else "Closed",
+                "Input 2 Change": "Triggered message" if input_2_change == 1 else "Did not trigger message",
+                "Input 2 State": "Open" if input_2_state == 1 else "Closed",
+                "Message Sub-Type": message_sub_type_description(message_sub_type)
+            })
+
+            byte8 = payload_bytes[8]
+            vibration_triggered_message = (byte8 >> 3) & 0b00000001
+            vibration_bit = (byte8 >> 4) & 0b00000001
+            two_d_fix = (byte8 >> 5) & 0b00000001
+            motion = (byte8 >> 6) & 0b00000001
+            fix_confidence_bit = (byte8 >> 7) & 0b00000001
+
+            decoded.update({
+                "Vibration Triggered Message": "No" if vibration_triggered_message == 0 else "Yes",
+                "Vibration State": "Unit is not in a state of vibration" if vibration_bit == 0 else "Unit is in a state of vibration",
+                "GPS Fix Type": "3D fix" if two_d_fix == 0 else "2D fix",
+                "Motion State": "Device was At-Rest" if motion == 0 else "Device was In-Motion",
+                "Fix Confidence": "High confidence in GPS fix accuracy" if fix_confidence_bit == 0 else "Reduced confidence in GPS fix accuracy",
+            })
+        else:
+            decoded["payload_decoded"] = f"Decoding for Global Message Type {global_message_type} not implemented."
+
+        return decoded
+
+    # Función auxiliar para descripción de subtipos
+    def message_sub_type_description(sub_type_value: int) -> str:
+        subtypes = {
+            0: "Location Message",
+            1: "Device Turned on Message",
+            2: "Change of Location Area alert message",
+            3: "Input Status Changed message",
+            4: "Undesired Input State message",
+            5: "Re-Centering message",
+            6: "Speed & Heading message"
+        }
+        return subtypes.get(sub_type_value, f"Unknown Sub-type ({sub_type_value})")
+
+    # Convertir hex a bytes
+    if hex_payload.startswith("0x") or hex_payload.startswith("0X"):
         payload_bytes = bytes.fromhex(hex_payload[2:])
     else:
         payload_bytes = bytes.fromhex(hex_payload)
 
-    if not payload_bytes or len(payload_bytes) != 9:
-        return {"error": "Invalid or incomplete payload. Expected 9 bytes for Type 0 message."}
+    if not payload_bytes:
+        return {"error": "Empty payload"}
 
-    # Byte 0: Global Message Type, Battery State, GPS Data Valid, Missed Input State Change, GPS Fail Counter
-    byte0 = payload_bytes[0]
-    global_message_type = byte0 & 0b00000011  # Bits 0 and 1
-    battery_state = (byte0 >> 2) & 0b00000001  # Bit 2
-    gps_data_valid = (byte0 >> 3) & 0b00000001  # Bit 3
-    missed_input_1 = (byte0 >> 4) & 0b00000001  # Bit 4
-    missed_input_2 = (byte0 >> 5) & 0b00000001  # Bit 5
-    gps_fail_counter = (byte0 >> 6) & 0b00000011  # Bits 6 and 7
+    if len(payload_bytes) == 9:
+        # Payload simple
+        return decode_single_payload(payload_bytes)
 
-    decoded_data = {
-        "Global Message Type": global_message_type,
-        "Battery State": "Good battery" if battery_state == 0 else "Replace battery",
-        "GPS Data Valid": "GPS Data valid in this message" if gps_data_valid == 0 else "GPS failed in this message cycle, ignore Latitude and Longitude fields",
-        "Missed Input 1 State Change": "Yes" if missed_input_1 == 1 else "No",
-        "Missed Input 2 State Change": "Yes" if missed_input_2 == 1 else "No",
-        "GPS Fail Counter": gps_fail_counter,
-    }
+    elif len(payload_bytes) > 9:
+        # Payload multipart
+        results = []
+        for i in range(0, len(payload_bytes), 9):
+            chunk = payload_bytes[i:i+9]
+            if len(chunk) != 9:
+                results.append({"error": f"Incomplete chunk of {len(chunk)} bytes, expected 9 bytes."})
+                continue
+            result = decode_single_payload(chunk)
+            results.append(result)
+        return {"multipart_payload_decoded": results}
 
-    if global_message_type == 0:  # Type 0 - Standard Message
-        # Bytes 1-6: Latitude/Longitude (48 bits)
-        latitude_raw = int.from_bytes(payload_bytes[1:4], byteorder='big', signed=True)
-        longitude_raw = int.from_bytes(payload_bytes[4:7], byteorder='big', signed=True)
-        latitude = latitude_raw * (90.0 / 8388608.0)
-        longitude = longitude_raw * (180.0 / 8388608.0)
-
-        # Byte 7: Input Status and Message Sub-type
-        byte7 = payload_bytes[7]
-        input_1_change = (byte7 >> 0) & 0b00000001
-        input_1_state = (byte7 >> 1) & 0b00000001
-        input_2_change = (byte7 >> 2) & 0b00000001
-        input_2_state = (byte7 >> 3) & 0b00000001
-        message_sub_type = (byte7 >> 4) & 0b00001111
-
-        decoded_data["Latitude"] = latitude
-        decoded_data["Longitude"] = longitude
-        decoded_data["Input 1 Change"] = "Triggered message" if input_1_change == 1 else "Did not trigger message"
-        decoded_data["Input 1 State"] = "Open" if input_1_state == 1 else "Closed"
-        decoded_data["Input 2 Change"] = "Triggered message" if input_2_change == 1 else "Did not trigger message"
-        decoded_data["Input 2 State"] = "Open" if input_2_state == 1 else "Closed"
-        decoded_data["Message Sub-Type"] = message_sub_type_description(message_sub_type)
-
-        # Byte 8: Reserved, Vibration Triggered Message, Vibration Bit, 2D/3D fix, Motion, Fix Confidence Bit
-        byte8 = payload_bytes[8]
-        vibration_triggered_message = (byte8 >> 3) & 0b00000001
-        vibration_bit = (byte8 >> 4) & 0b00000001
-        two_d_fix = (byte8 >> 5) & 0b00000001
-        motion = (byte8 >> 6) & 0b00000001
-        fix_confidence_bit = (byte8 >> 7) & 0b00000001
-
-        decoded_data["Vibration Triggered Message"] = "No" if vibration_triggered_message == 0 else "Yes"
-        decoded_data["Vibration State"] = "Unit is not in a state of vibration" if vibration_bit == 0 else "Unit is in a state of vibration"
-        decoded_data["GPS Fix Type"] = "3D fix" if two_d_fix == 0 else "2D fix"
-        decoded_data["Motion State"] = "Device was At-Rest" if motion == 0 else "Device was In-Motion"
-        decoded_data["Fix Confidence"] = "High confidence in GPS fix accuracy" if fix_confidence_bit == 0 else "Reduced confidence in GPS fix accuracy"
     else:
-        decoded_data["payload_decoded"] = f"Decoding for Global Message Type {global_message_type} is not fully implemented yet for other bytes."
+        return {"error": f"Unexpected payload length {len(payload_bytes)} bytes. Expected 9 or multiples of 9 bytes."}
 
-    return decoded_data
-
-def message_sub_type_description(sub_type_value: int) -> str:
-    """Returns the description for Type 0 Message Class Sub-types."""
-    if sub_type_value == 0:
-        return "Location Message"
-    elif sub_type_value == 1:
-        return "Device Turned on Message"
-    elif sub_type_value == 2:
-        return "Change of Location Area alert message"
-    elif sub_type_value == 3:
-        return "Input Status Changed message"
-    elif sub_type_value == 4:
-        return "Undesired Input State message"
-    elif sub_type_value == 5:
-        return "Re-Centering message"
-    elif sub_type_value == 6:
-        return "Speed & Heading message"
-    else:
-        return f"Unknown Sub-type ({sub_type_value})"
 
 # Recibir datos de la API
 @router.post("/gpsApi", response_class=PlainTextResponse)
@@ -119,7 +135,9 @@ async def receive_stu_messages(request: Request):
         time_stamp = stu_messages.get("@timeStamp")
         messages = stu_messages.get("stuMessage", [])
 
-        if isinstance(messages, dict):
+        if not messages:
+            messages = []
+        elif isinstance(messages, dict):
             messages = [messages]
 
         inserted_count = 0
@@ -161,7 +179,7 @@ async def receive_stu_messages(request: Request):
             collection.insert_one(doc)
             inserted_count += 1
 
-        # El resto del código de respuesta permanece igual
+        # Repuesta con mensaje
         delivery_time = datetime.utcnow().strftime("%d/%m/%Y %H:%M:%S GMT")
         correlation_id = message_id or "unknown"
         response_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
