@@ -122,6 +122,24 @@ def decode_smartone_solar_payload(hex_payload: str) -> dict:
 
     else:
         return {"error": f"Unexpected payload length {len(payload_bytes)} bytes. Expected 9 or multiples of 9 bytes."}
+    
+def formatear_fecha(time_stamp_raw: str):
+    if not time_stamp_raw:
+        return None
+        
+    try:
+        # Caso 1: Formato con barras y GMT (09/10/2025 15:18:07 GMT)
+        if "/" in time_stamp_raw:
+            # Quitamos el GMT y espacios sobrantes
+            clean_date = time_stamp_raw.replace("GMT", "").strip()
+            return datetime.strptime(clean_date, "%d/%m/%Y %H:%M:%S")
+        
+        # Caso 2: Formato ISO (2025-07-14T05:35:24.000-04:00)
+        return datetime.fromisoformat(time_stamp_raw.replace('Z', '+00:00'))
+        
+    except Exception as e:
+        print(f"Error procesando fecha {time_stamp_raw}: {e}")
+        return None
 
 
 # Recibir datos de la API
@@ -151,6 +169,9 @@ async def receive_stu_messages(request: Request):
                 decoded_data = decode_smartone_solar_payload(raw_payload)
 
             # Si la decodificación no falló, actualiza el diccionario con los datos decodificados
+            
+            time_stamp_dt = formatear_fecha(time_stamp)
+            
             if "error" not in decoded_data:
                 doc = {
                     "message_id": message_id,
@@ -162,7 +183,8 @@ async def receive_stu_messages(request: Request):
                     **decoded_data,  # Añadimos todos los campos decodificados
                     "payload_length": msg.get("payload", {}).get("@length") if isinstance(msg.get("payload"), dict) else None,
                     "payload_source": msg.get("payload", {}).get("@source") if isinstance(msg.get("payload"), dict) else None,
-                    "payload_encoding": msg.get("payload", {}).get("@encoding") if isinstance(msg.get("payload"), dict) else None
+                    "payload_encoding": msg.get("payload", {}).get("@encoding") if isinstance(msg.get("payload"), dict) else None,
+                    "time_stamp_dt": time_stamp_dt
                 }
             else:
                 # En caso de error de decodificación, guardamos el error y el payload original
@@ -173,7 +195,8 @@ async def receive_stu_messages(request: Request):
                     "unixTime": msg.get("unixTime"),
                     "gps": msg.get("gps"),
                     "payload_raw": raw_payload,
-                    "decoding_error": decoded_data["error"]
+                    "decoding_error": decoded_data["error"],
+                    "time_stamp_dt": time_stamp_dt
                 }
             
             collection.insert_one(doc)
