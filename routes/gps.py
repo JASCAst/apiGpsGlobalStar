@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import PlainTextResponse
 from pymongo import MongoClient
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import xmltodict
 import os
@@ -128,15 +128,27 @@ def formatear_fecha(time_stamp_raw: str):
         return None
         
     try:
+        fecha_dt = None
+        
         # Caso 1: Formato con barras y GMT (09/10/2025 15:18:07 GMT)
         if "/" in time_stamp_raw:
-            # Quitamos el GMT y espacios sobrantes
             clean_date = time_stamp_raw.replace("GMT", "").strip()
-            return datetime.strptime(clean_date, "%d/%m/%Y %H:%M:%S")
+            fecha_dt = datetime.strptime(clean_date, "%d/%m/%Y %H:%M:%S")
         
         # Caso 2: Formato ISO (2025-07-14T05:35:24.000-04:00)
-        return datetime.fromisoformat(time_stamp_raw.replace('Z', '+00:00'))
-        
+        else:
+            fecha_dt = datetime.fromisoformat(time_stamp_raw.replace('Z', '+00:00'))
+            # Si el ISO ya trae zona horaria (offset), lo convertimos a naive (sin zona) 
+            # para poder restarle las horas fácilmente si es necesario
+            if fecha_dt.tzinfo is not None:
+                fecha_dt = fecha_dt.replace(tzinfo=None)
+
+        if fecha_dt:
+            # APLICAR DESCUENTO DE 3 HORAS
+            # Si recibes 13:40, esto lo dejará en 10:40
+            fecha_ajustada = fecha_dt - timedelta(hours=3)
+            return fecha_ajustada
+            
     except Exception as e:
         print(f"Error procesando fecha {time_stamp_raw}: {e}")
         return None
