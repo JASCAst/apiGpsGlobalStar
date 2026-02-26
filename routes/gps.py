@@ -184,6 +184,26 @@ async def receive_stu_messages(request: Request):
             
             time_stamp_dt = formatear_fecha(time_stamp)
             
+            # si el esn es igual a 0-4981428 almacenar todo lo recibido sin decodificar, para analizarlo posteriormente
+            if msg.get("esn") == "0-4981428":
+                doc = {
+                    "message_id": message_id,
+                    "time_stamp": time_stamp,
+                    "esn": msg.get("esn"),
+                    "unixTime": msg.get("unixTime"),
+                    "gps": msg.get("gps"),
+                    "payload_raw": raw_payload, # Guardamos el payload original para referencia
+                    "payload_length": msg.get("payload", {}).get("@length") if isinstance(msg.get("payload"), dict) else None,
+                    "payload_source": msg.get("payload", {}).get("@source") if isinstance(msg.get("payload"), dict) else None,
+                    "payload_encoding": msg.get("payload", {}).get("@encoding") if isinstance(msg.get("payload"), dict) else None,
+                    "time_stamp_dt": time_stamp_dt
+                }
+                collection.insert_one(doc)
+                inserted_count += 1
+                continue
+                
+            
+            
             if "error" not in decoded_data:
                 doc = {
                     "message_id": message_id,
