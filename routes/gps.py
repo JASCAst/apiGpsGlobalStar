@@ -146,7 +146,7 @@ def formatear_fecha(time_stamp_raw: str):
         if fecha_dt:
             # APLICAR DESCUENTO DE 3 HORAS
             # Si recibes 13:40, esto lo dejará en 10:40
-            fecha_ajustada = fecha_dt - timedelta(hours=3)
+            fecha_ajustada = fecha_dt - timedelta(hours=4)
             return fecha_ajustada
             
     except Exception as e:
