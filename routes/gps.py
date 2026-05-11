@@ -233,6 +233,7 @@ async def receive_stu_messages(request: Request):
             
             collection.insert_one(doc)
             inserted_count += 1
+            print(f"Mensaje con datos {doc} insertado correctamente. ")
 
         # Repuesta con mensaje
         delivery_time = datetime.utcnow().strftime("%d/%m/%Y %H:%M:%S GMT")
@@ -245,6 +246,7 @@ async def receive_stu_messages(request: Request):
                         <stateMessage>{inserted_count} messages received and stored successfully</stateMessage>
                         </stuResponseMsg>
                         """
+        print(f"{inserted_count} mensajes procesados e insertados en la base de datos.")
         return Response(content=response_xml, media_type="text/xml")
 
     except Exception as e:
@@ -256,4 +258,5 @@ async def receive_stu_messages(request: Request):
                     <stateMessage>{str(e)}</stateMessage>
                     </stuResponseMsg>
                     """
+        print(f"Error: {str(e)}")
         return Response(content=error_xml, media_type="text/xml", status_code=400)
