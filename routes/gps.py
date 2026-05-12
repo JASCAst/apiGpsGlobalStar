@@ -158,7 +158,6 @@ def formatear_fecha(time_stamp_raw: str):
 @router.post("/gpsApi", response_class=PlainTextResponse)
 async def receive_stu_messages(request: Request):
     xml_data = await request.body()
-    print(f"Recibido mensaje request {xml_data}")
     try:
         parsed = xmltodict.parse(xml_data)
         stu_messages = parsed.get("stuMessages", {})
